@@ -37,8 +37,8 @@ log:
   #   /usr/local/nginx/logs/access.log
   # 
   # 取消下面的注释并设置正确的路径：
-  path: "/tmp/nginx.log"
-#  path: "/usr/local/nginx/logs/access.log"
+  # path: "/tmp/nginx.log"
+  path: "/usr/local/nginx/logs/access.log"
 
 # 统计报告配置
 report:
