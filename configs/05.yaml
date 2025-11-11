@@ -1,0 +1,50 @@
+# Traffic MD 配置文件
+# 此文件会被打包到编译产物中，修改后需要重新编译才能生效
+
+# Web 服务器配置
+web:
+  # Web 服务器端口
+  # 默认: 8080
+  # 可以通过命令行参数 --port 或 -p 覆盖
+  port: 6099
+
+# 监控端点配置
+monitor:
+  # 监控端点（支持 glob 模式）
+  # 支持的通配符：
+  #   *  - 匹配单个路径段（不包含 /）
+  #   ** - 匹配零个或多个路径段（可以包含 /）
+  # 
+  # 示例：
+  #   - /api/**          # 匹配 /api/ 下的所有路径
+  #   - /api/*           # 匹配 /api/ 下的直接子路径（不包括深层嵌套）
+  #   - /api/*/users     # 匹配 /api/v1/users, /api/v2/users 等
+  #   - /static/**       # 匹配 /static/ 下的所有路径
+  endpoints:
+    - /sferpAPI/**/*
+    - /statics/**/*
+    - /sfimggroup/**/*
+    - /order2.0/**/*
+
+# 日志文件配置
+log:
+  # 日志文件路径
+  # 如果在此配置，命令行参数 --log 会覆盖此值
+  # 如果都不配置，程序会报错退出
+  # 
+  # 常见 nginx 日志路径：
+  #   /var/log/nginx/access.log
+  #   /usr/local/nginx/logs/access.log
+  # 
+  # 取消下面的注释并设置正确的路径：
+  # path: "/tmp/nginx.log"
+  path: "/usr/local/nginx/logs/access.log"
+
+# 统计报告配置
+report:
+  # 统计报告间隔
+  # 支持的时间单位：ns, us, µs, ms, s, m, h
+  # 示例：5m (5分钟), 1h (1小时), 30s (30秒)
+  # 默认: 5m
+  interval: 5m
+
