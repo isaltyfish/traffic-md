@@ -3,6 +3,7 @@ package stats
 import (
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -24,25 +25,19 @@ func NewDailyStats(date time.Time) *DailyStats {
 	}
 }
 
-// AddPublicBytes 增加公网流量
+// AddPublicBytes 增加公网流量（使用原子操作，无锁）
 func (d *DailyStats) AddPublicBytes(bytes int64) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.PublicBytes += bytes
+	atomic.AddInt64(&d.PublicBytes, bytes)
 }
 
-// AddPrivateBytes 增加内网流量
+// AddPrivateBytes 增加内网流量（使用原子操作，无锁）
 func (d *DailyStats) AddPrivateBytes(bytes int64) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.PrivateBytes += bytes
+	atomic.AddInt64(&d.PrivateBytes, bytes)
 }
 
-// AddOtherBytes 增加其他流量
+// AddOtherBytes 增加其他流量（使用原子操作，无锁）
 func (d *DailyStats) AddOtherBytes(bytes int64) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.OtherBytes += bytes
+	atomic.AddInt64(&d.OtherBytes, bytes)
 }
 
 // AddEndpointBytes 增加端点流量
@@ -52,25 +47,19 @@ func (d *DailyStats) AddEndpointBytes(endpoint string, bytes int64) {
 	d.EndpointStats[endpoint] += bytes
 }
 
-// GetPublicBytes 获取公网流量
+// GetPublicBytes 获取公网流量（使用原子操作，无锁）
 func (d *DailyStats) GetPublicBytes() int64 {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-	return d.PublicBytes
+	return atomic.LoadInt64(&d.PublicBytes)
 }
 
-// GetPrivateBytes 获取内网流量
+// GetPrivateBytes 获取内网流量（使用原子操作，无锁）
 func (d *DailyStats) GetPrivateBytes() int64 {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-	return d.PrivateBytes
+	return atomic.LoadInt64(&d.PrivateBytes)
 }
 
-// GetOtherBytes 获取其他流量
+// GetOtherBytes 获取其他流量（使用原子操作，无锁）
 func (d *DailyStats) GetOtherBytes() int64 {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-	return d.OtherBytes
+	return atomic.LoadInt64(&d.OtherBytes)
 }
 
 // GetEndpointStats 获取端点统计

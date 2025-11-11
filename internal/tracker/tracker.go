@@ -81,9 +81,6 @@ func (t *Tracker) processLogLine(line string) {
 		return
 	}
 
-	// 检查是否需要重置到新的一天
-	t.statsManager.CheckAndResetDay()
-
 	// 更新IP统计
 	ipStat := t.statsManager.GetIPStats().GetOrCreate(entry.IP)
 	ipStat.AddBytes(entry.BytesSent)
@@ -111,7 +108,7 @@ func (t *Tracker) processLogLine(line string) {
 
 // dailyResetLoop 每日重置循环
 func (t *Tracker) dailyResetLoop() {
-	ticker := time.NewTicker(1 * time.Minute)
+	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 
 	for {
