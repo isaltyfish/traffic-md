@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"net"
 	"regexp"
 	"strconv"
 	"strings"
@@ -68,6 +69,11 @@ func (p *LogParser) Parse(line string) (*LogEntry, error) {
 		// 忽略状态码和body_bytes_sent，只关注bytes_sent
 		_ = status
 		_ = bodyBytesSentStr
+
+		// 如果行尾包含额外的真实IP（例如："117.64.178.165"），优先使用该IP
+		if real := extractTrailingRealIP(line); real != "" {
+			ip = real
+		}
 
 		return &LogEntry{
 			IP:        ip,
@@ -154,6 +160,11 @@ func (p *LogParser) Parse(line string) (*LogEntry, error) {
 	// bytes_sent 是倒数第二个数字字段
 	bytesSent = secondLastVal
 
+	// 如果行尾包含额外的真实IP（例如："117.64.178.165"），优先使用该IP
+	if real := extractTrailingRealIP(line); real != "" {
+		ip = real
+	}
+
 	return &LogEntry{
 		IP:        ip,
 		BytesSent: bytesSent,
@@ -187,5 +198,31 @@ func (p *LogParser) extractPath(request string) string {
 		return request
 	}
 
+	return ""
+}
+
+// extractTrailingRealIP 尝试从日志行尾部提取一个带引号的真实IP（适配新增格式）
+// 例如： ... "User-Agent" "117.64.178.165"
+// 如果最后一个带引号的字段是合法IP，则返回之；否则返回空字符串
+func extractTrailingRealIP(line string) string {
+	// 从行尾开始，寻找最后一个引号包裹的字段
+	// 简单做法：反向扫描，找到最后一个双引号对
+	lastQuoteEnd := strings.LastIndexByte(line, '"')
+	if lastQuoteEnd <= 0 {
+		return ""
+	}
+	// 找到对应的起始引号
+	lastQuoteStart := strings.LastIndexByte(line[:lastQuoteEnd], '"')
+	if lastQuoteStart < 0 {
+		return ""
+	}
+	token := strings.TrimSpace(line[lastQuoteStart+1 : lastQuoteEnd])
+	if token == "" {
+		return ""
+	}
+	// 验证是否为合法IP
+	if net.ParseIP(token) != nil {
+		return token
+	}
 	return ""
 }

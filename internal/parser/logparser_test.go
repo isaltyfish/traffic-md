@@ -13,6 +13,16 @@ func TestLogParser_Parse(t *testing.T) {
 		expected *LogEntry
 	}{
 		{
+			name:    "log line with trailing real ip at the end",
+			logLine: `100.122.56.138 - - [11/Nov/2025:17:58:43 +0800] "GET /statics/images/index/youpiconx2.png HTTP/1.1" 304 0 242 "-" "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36" "117.64.178.165"`,
+			expected: &LogEntry{
+				IP:        "117.64.178.165", // use real client IP at the end
+				BytesSent: 242,
+				Path:      "/statics/images/index/youpiconx2.png",
+				Timestamp: "11/Nov/2025:17:58:43 +0800",
+			},
+		},
+		{
 			name:    "standard log line",
 			logLine: `100.122.56.162 - - [11/Nov/2025:09:54:59 +0800] "POST /order2.0/a/order/getWholeList?ptype=3 HTTP/1.1" 200 516 2806 "http://www.sifangerp.cn/order2.0/a/order/Whole?cacheIds=2c90812d9a6e3c53019a7081e53a2535" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36"`,
 			expected: &LogEntry{
