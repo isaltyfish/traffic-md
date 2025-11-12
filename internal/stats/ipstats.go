@@ -20,7 +20,7 @@ type IPStats struct {
 	TotalBytes  int64
 	FirstSeen   time.Time
 	LastSeen    time.Time
-	AccessCount int64 // 访问次数（用于LFU）
+	AccessCount int64 // 访问次数
 	mu          sync.RWMutex
 }
 
@@ -145,10 +145,10 @@ func (m *IPStatsManager) EvictIfNeeded() {
 	force := count >= forceEvictThreshold
 	now := time.Now()
 
-	// 收集可淘汰的IP及其访问频率
+	// 收集可淘汰的IP及其流量
 	type evictCandidate struct {
-		ip          string
-		accessCount int64
+		ip         string
+		totalBytes int64
 	}
 
 	var candidates []evictCandidate
@@ -156,8 +156,8 @@ func (m *IPStatsManager) EvictIfNeeded() {
 	for ip, stat := range m.stats {
 		if stat.CanEvict(now, force) {
 			candidates = append(candidates, evictCandidate{
-				ip:          ip,
-				accessCount: stat.GetAccessCount(),
+				ip:         ip,
+				totalBytes: stat.GetTotalBytes(),
 			})
 		}
 	}
@@ -167,9 +167,9 @@ func (m *IPStatsManager) EvictIfNeeded() {
 		return
 	}
 
-	// 按LFU排序（访问次数少的优先淘汰）
+	// 按流量从小到大排序（流量小的优先淘汰）
 	sort.Slice(candidates, func(i, j int) bool {
-		return candidates[i].accessCount < candidates[j].accessCount
+		return candidates[i].totalBytes < candidates[j].totalBytes
 	})
 
 	// 计算需要淘汰的数量
@@ -186,7 +186,7 @@ func (m *IPStatsManager) EvictIfNeeded() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// 淘汰访问次数最少的IP
+	// 淘汰流量最小的IP
 	for i := 0; i < evictCount; i++ {
 		delete(m.stats, candidates[i].ip)
 	}
