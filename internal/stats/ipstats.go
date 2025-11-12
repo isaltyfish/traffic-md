@@ -172,8 +172,17 @@ func (m *IPStatsManager) EvictIfNeeded() {
 		return candidates[i].totalBytes < candidates[j].totalBytes
 	})
 
-	// 计算需要淘汰的数量
-	evictCount := count - maxIPsBeforeEvict
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// 重新获取当前IP数量（因为在收集候选者后可能有新IP被添加）
+	currentCount := len(m.stats)
+	if currentCount <= maxIPsBeforeEvict {
+		return
+	}
+
+	// 重新计算需要淘汰的数量
+	evictCount := currentCount - maxIPsBeforeEvict
 	if evictCount <= 0 {
 		return
 	}
@@ -183,12 +192,14 @@ func (m *IPStatsManager) EvictIfNeeded() {
 		evictCount = len(candidates)
 	}
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	// 淘汰流量最小的IP
-	for i := 0; i < evictCount; i++ {
-		delete(m.stats, candidates[i].ip)
+	// 淘汰流量最小的IP，并检查IP是否还存在
+	evicted := 0
+	for i := 0; i < len(candidates) && evicted < evictCount; i++ {
+		// 检查IP是否还存在（可能在收集候选者后被其他操作删除）
+		if _, exists := m.stats[candidates[i].ip]; exists {
+			delete(m.stats, candidates[i].ip)
+			evicted++
+		}
 	}
 }
 
