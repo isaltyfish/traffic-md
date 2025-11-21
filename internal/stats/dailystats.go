@@ -127,9 +127,6 @@ func (m *StatsManager) CheckAndResetDay() bool {
 // 如果匹配多个规则，返回第一个匹配的规则
 // 如果没有匹配，返回空字符串
 func (m *StatsManager) MatchEndpoint(path string) string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
 	for _, rule := range m.endpointRules {
 		if matchPath(path, rule) {
 			return rule
