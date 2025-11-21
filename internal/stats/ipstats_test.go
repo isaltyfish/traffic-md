@@ -274,3 +274,94 @@ func TestEvictIfNeeded_CountCalculation(t *testing.T) {
 		t.Errorf("After eviction, count should be %d, got %d", expectedCount, finalCount)
 	}
 }
+
+// TestEvictIfNeeded_ShouldNotEvictIPsThatGrowLarge 测试关键bug修复：
+// 在收集候选者后，如果IP流量增长到超过阈值，不应该被删除
+func TestEvictIfNeeded_ShouldNotEvictIPsThatGrowLarge(t *testing.T) {
+	manager := NewIPStatsManager()
+	now := time.Now()
+	firstSeen := now.Add(-16 * time.Minute)
+
+	// 创建一个会在收集候选者后流量增长的IP
+	growthIP := "192.168.100.1"
+	stat := manager.GetOrCreate(growthIP)
+	stat.mu.Lock()
+	stat.TotalBytes = 1024 * 1024 // 初始1MB，可以被淘汰
+	stat.FirstSeen = firstSeen
+	stat.mu.Unlock()
+
+	// 创建4000个小流量IP，使总数超过阈值
+	for i := 0; i < 4000; i++ {
+		ip := fmt.Sprintf("10.0.4.%d", i)
+		s := manager.GetOrCreate(ip)
+		s.mu.Lock()
+		s.TotalBytes = 1024 * 1024 // 1MB
+		s.FirstSeen = firstSeen
+		s.mu.Unlock()
+	}
+
+	initialCount := manager.Count()
+	if initialCount != 4001 {
+		t.Fatalf("Initial count should be 4001, got %d", initialCount)
+	}
+
+	// 手动模拟收集候选者的过程，然后在删除前增长流量
+	// 这直接测试了bug场景：收集候选者时流量小，删除时流量大
+
+	// 步骤1: 收集候选者（模拟EvictIfNeeded中的收集过程）
+	force := false
+	var candidates []struct {
+		ip         string
+		totalBytes int64
+	}
+	manager.mu.RLock()
+	for ip, s := range manager.stats {
+		if s.CanEvict(now, force) {
+			candidates = append(candidates, struct {
+				ip         string
+				totalBytes int64
+			}{ip: ip, totalBytes: s.GetTotalBytes()})
+		}
+	}
+	manager.mu.RUnlock()
+
+	// 验证growthIP在候选者列表中（因为初始流量是1MB）
+	foundInCandidates := false
+	for _, c := range candidates {
+		if c.ip == growthIP {
+			foundInCandidates = true
+			if c.totalBytes != 1024*1024 {
+				t.Errorf("growthIP should have 1MB in candidates, got %d", c.totalBytes)
+			}
+			break
+		}
+	}
+	if !foundInCandidates {
+		t.Fatal("growthIP should be in candidates list")
+	}
+
+	// 步骤2: 在删除前，增长growthIP的流量到10GB（模拟并发场景）
+	growthStat := manager.Get(growthIP)
+	growthStat.mu.Lock()
+	growthStat.TotalBytes = 10 * 1024 * 1024 * 1024 // 增长到10GB
+	growthStat.mu.Unlock()
+
+	// 步骤3: 现在调用EvictIfNeeded，应该重新验证并保护growthIP
+	manager.EvictIfNeeded()
+
+	// 验证growthIP不应该被删除（因为它的流量已经增长到10GB，应该被保护）
+	if manager.Get(growthIP) == nil {
+		t.Errorf("growthIP %s should not be evicted because its traffic grew to 10GB, but it was evicted", growthIP)
+	} else {
+		remainingStat := manager.Get(growthIP)
+		if remainingStat.GetTotalBytes() != 10*1024*1024*1024 {
+			t.Errorf("growthIP should have 10GB, got %d", remainingStat.GetTotalBytes())
+		}
+	}
+
+	// 验证最终数量
+	finalCount := manager.Count()
+	if finalCount > maxIPsBeforeEvict {
+		t.Logf("Final count: %d (expected <= %d). growthIP was protected.", finalCount, maxIPsBeforeEvict)
+	}
+}

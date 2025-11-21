@@ -187,19 +187,49 @@ func (m *IPStatsManager) EvictIfNeeded() {
 		return
 	}
 
-	// 限制淘汰数量不超过候选者数量
-	if evictCount > len(candidates) {
-		evictCount = len(candidates)
+	// 重新验证候选者并重新排序（因为IP状态可能在收集后已变化）
+	// 关键修复：必须重新验证每个候选者是否仍然可以淘汰
+	validCandidates := make([]evictCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		stat, exists := m.stats[candidate.ip]
+		if !exists {
+			// IP已被删除，跳过
+			continue
+		}
+
+		// 重新验证IP是否仍然可以淘汰（重要：IP状态可能已变化）
+		// 例如：在收集候选者时流量是1MB，但现在可能已增长到10GB，应该被保护
+		if !stat.CanEvict(now, force) {
+			// IP状态已变化，不再可以淘汰，跳过
+			continue
+		}
+
+		// 重新获取当前流量（因为流量可能已变化）
+		currentBytes := stat.GetTotalBytes()
+		validCandidates = append(validCandidates, evictCandidate{
+			ip:         candidate.ip,
+			totalBytes: currentBytes,
+		})
 	}
 
-	// 淘汰流量最小的IP，并检查IP是否还存在
-	evicted := 0
-	for i := 0; i < len(candidates) && evicted < evictCount; i++ {
-		// 检查IP是否还存在（可能在收集候选者后被其他操作删除）
-		if _, exists := m.stats[candidates[i].ip]; exists {
-			delete(m.stats, candidates[i].ip)
-			evicted++
-		}
+	// 如果有效候选者数量不足，只能淘汰可用的
+	if len(validCandidates) == 0 {
+		return
+	}
+
+	// 基于最新流量重新排序
+	sort.Slice(validCandidates, func(i, j int) bool {
+		return validCandidates[i].totalBytes < validCandidates[j].totalBytes
+	})
+
+	// 限制淘汰数量不超过有效候选者数量
+	if evictCount > len(validCandidates) {
+		evictCount = len(validCandidates)
+	}
+
+	// 淘汰流量最小的IP
+	for i := 0; i < evictCount; i++ {
+		delete(m.stats, validCandidates[i].ip)
 	}
 }
 
