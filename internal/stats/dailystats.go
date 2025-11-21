@@ -10,18 +10,25 @@ import (
 // DailyStats 按天统计的流量数据
 type DailyStats struct {
 	Date          time.Time
-	PublicBytes   int64            // 公网流量
-	PrivateBytes  int64            // 内网流量
-	OtherBytes    int64            // 其他流量
-	EndpointStats map[string]int64 // 端点流量统计
-	mu            sync.RWMutex
+	PublicBytes   int64             // 公网流量
+	PrivateBytes  int64             // 内网流量
+	OtherBytes    int64             // 其他流量
+	EndpointStats map[string]*int64 // 端点流量统计（预先创建，使用 atomic 操作计数器，无需锁）
 }
 
 // NewDailyStats 创建新的日统计
-func NewDailyStats(date time.Time) *DailyStats {
+// endpointRules: 端点规则列表，用于预先创建所有端点的计数器
+func NewDailyStats(date time.Time, endpointRules []string) *DailyStats {
+	// 预先创建所有端点的计数器
+	endpointStats := make(map[string]*int64, len(endpointRules))
+	for _, rule := range endpointRules {
+		counter := new(int64) // 初始值为 0
+		endpointStats[rule] = counter
+	}
+
 	return &DailyStats{
 		Date:          date,
-		EndpointStats: make(map[string]int64),
+		EndpointStats: endpointStats,
 	}
 }
 
@@ -40,11 +47,10 @@ func (d *DailyStats) AddOtherBytes(bytes int64) {
 	atomic.AddInt64(&d.OtherBytes, bytes)
 }
 
-// AddEndpointBytes 增加端点流量
 func (d *DailyStats) AddEndpointBytes(endpoint string, bytes int64) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.EndpointStats[endpoint] += bytes
+	if counter, exists := d.EndpointStats[endpoint]; exists {
+		atomic.AddInt64(counter, bytes)
+	}
 }
 
 // GetPublicBytes 获取公网流量（使用原子操作，无锁）
@@ -64,11 +70,11 @@ func (d *DailyStats) GetOtherBytes() int64 {
 
 // GetEndpointStats 获取端点统计
 func (d *DailyStats) GetEndpointStats() map[string]int64 {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-	result := make(map[string]int64)
-	for k, v := range d.EndpointStats {
-		result[k] = v
+	result := make(map[string]int64, len(d.EndpointStats))
+	// 由于 map 结构固定（只读），遍历是安全的
+	// 使用 atomic 读取每个计数器的值
+	for endpoint, counter := range d.EndpointStats {
+		result[endpoint] = atomic.LoadInt64(counter)
 	}
 	return result
 }
@@ -85,7 +91,7 @@ type StatsManager struct {
 func NewStatsManager(endpointRules []string) *StatsManager {
 	now := time.Now()
 	return &StatsManager{
-		currentDay:    NewDailyStats(now),
+		currentDay:    NewDailyStats(now, endpointRules),
 		ipStats:       NewIPStatsManager(),
 		endpointRules: endpointRules,
 	}
@@ -116,7 +122,7 @@ func (m *StatsManager) CheckAndResetDay() bool {
 
 	if !currentDate.Equal(newDate) {
 		// 新的一天，重置统计
-		m.currentDay = NewDailyStats(now)
+		m.currentDay = NewDailyStats(now, m.endpointRules)
 		m.ipStats.Reset()
 		return true
 	}
