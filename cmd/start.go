@@ -90,33 +90,8 @@ Example:
 			}
 		}
 
-		// 解析QPS时间窗口配置
-		qpsWindows := []time.Duration{}
-		qpsWindowStrs := cfg.GetQPSWindows()
-		if len(qpsWindowStrs) == 0 {
-			// 使用默认值
-			qpsWindowStrs = []string{"1s", "5s", "1m"}
-		}
-		for _, windowStr := range qpsWindowStrs {
-			window, err := time.ParseDuration(windowStr)
-			if err != nil {
-				log.Printf("Warning: Invalid QPS window '%s': %v, skipping", windowStr, err)
-				continue
-			}
-			if window <= 0 {
-				log.Printf("Warning: QPS window '%s' must be positive, skipping", windowStr)
-				continue
-			}
-			qpsWindows = append(qpsWindows, window)
-		}
-		if len(qpsWindows) == 0 {
-			log.Printf("Warning: No valid QPS windows configured, using defaults: 1s, 5s, 1m")
-			qpsWindows = []time.Duration{1 * time.Second, 5 * time.Second, 1 * time.Minute}
-		}
-		log.Printf("QPS windows: %v", qpsWindowStrs)
-
 		// 创建跟踪器
-		t := tracker.NewTracker(logPath, endpointRules, qpsWindows)
+		t := tracker.NewTracker(logPath, endpointRules)
 
 		// 启动跟踪
 		if err := t.Start(); err != nil {

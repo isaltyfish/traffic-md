@@ -22,10 +22,10 @@ type Tracker struct {
 }
 
 // NewTracker 创建新的跟踪器
-func NewTracker(logPath string, endpointRules []string, qpsWindows []time.Duration) *Tracker {
+func NewTracker(logPath string, endpointRules []string) *Tracker {
 	return &Tracker{
 		logPath:      logPath,
-		statsManager: stats.NewStatsManager(endpointRules, qpsWindows),
+		statsManager: stats.NewStatsManager(endpointRules),
 		logParser:    parser.NewLogParser(),
 		stopCh:       make(chan struct{}),
 		doneCh:       make(chan struct{}),
@@ -102,13 +102,8 @@ func (t *Tracker) processLogLine(line string) {
 	if entry.Path != "" {
 		if endpointPattern := t.statsManager.MatchEndpoint(entry.Path); endpointPattern != "" {
 			dailyStat.AddEndpointBytes(endpointPattern, entry.BytesSent)
-			// 更新端点QPS
-			dailyStat.AddEndpointRequest(endpointPattern)
 		}
 	}
-
-	// 更新总QPS（每个请求都计数）
-	dailyStat.AddRequest()
 }
 
 // dailyResetLoop 每日重置循环
