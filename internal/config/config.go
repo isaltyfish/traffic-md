@@ -16,6 +16,7 @@ type Config struct {
 	Monitor MonitorConfig `yaml:"monitor"`
 	Log     LogConfig     `yaml:"log"`
 	Report  ReportConfig  `yaml:"report"`
+	QPS     QPSConfig     `yaml:"qps"`
 }
 
 // WebConfig Web 服务器配置
@@ -36,6 +37,11 @@ type LogConfig struct {
 // ReportConfig 报告配置
 type ReportConfig struct {
 	Interval string `yaml:"interval"`
+}
+
+// QPSConfig QPS统计配置
+type QPSConfig struct {
+	Windows []string `yaml:"windows"` // QPS时间窗口列表，如 ["5s", "10s", "1m"]
 }
 
 // LoadConfig 从嵌入的配置文件加载配置
@@ -63,6 +69,11 @@ func LoadConfig() (*Config, error) {
 		config.Monitor.Endpoints = []string{}
 	}
 
+	// 设置QPS默认值
+	if len(config.QPS.Windows) == 0 {
+		config.QPS.Windows = []string{"1s", "5s", "1m"}
+	}
+
 	return &config, nil
 }
 
@@ -84,4 +95,9 @@ func (c *Config) GetLogPath() string {
 // GetReportInterval 获取报告间隔
 func (c *Config) GetReportInterval() string {
 	return c.Report.Interval
+}
+
+// GetQPSWindows 获取QPS时间窗口配置
+func (c *Config) GetQPSWindows() []string {
+	return c.QPS.Windows
 }

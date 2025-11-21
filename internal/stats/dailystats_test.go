@@ -147,9 +147,11 @@ func TestMatchPath(t *testing.T) {
 	}
 }
 
-// TestQPSStatistics 测试QPS统计功能
+// TestQPSStatistics 测试QPS统计功能（基于滑动窗口）
 func TestQPSStatistics(t *testing.T) {
-	dailyStats := NewDailyStats(time.Now())
+	// 创建测试用的时间窗口：1秒和5秒
+	qpsWindows := []time.Duration{1 * time.Second, 5 * time.Second}
+	dailyStats := NewDailyStats(time.Now(), qpsWindows)
 
 	// 测试总QPS
 	t.Run("总QPS统计", func(t *testing.T) {
@@ -158,34 +160,30 @@ func TestQPSStatistics(t *testing.T) {
 			dailyStats.AddRequest()
 		}
 
-		// 更新QPS（模拟每秒更新）
-		dailyStats.UpdateQPS()
-
-		// 验证总QPS
+		// 验证总QPS（滑动窗口会自动计算）
 		totalQPS := dailyStats.GetTotalQPS()
-		if totalQPS != 10 {
-			t.Errorf("总QPS应该是10，实际是%d", totalQPS)
+		if totalQPS["1s"] != 10 {
+			t.Errorf("1s窗口的总QPS应该是10，实际是%d", totalQPS["1s"])
+		}
+		if totalQPS["5s"] != 10 {
+			t.Errorf("5s窗口的总QPS应该是10，实际是%d", totalQPS["5s"])
 		}
 
-		// 再次添加5个请求
-		for i := 0; i < 5; i++ {
-			dailyStats.AddRequest()
-		}
-
-		// 更新QPS
-		dailyStats.UpdateQPS()
-
-		// 验证总QPS更新为5
+		// 等待1秒后，1s窗口应该清空，5s窗口应该还有
+		time.Sleep(1100 * time.Millisecond)
 		totalQPS = dailyStats.GetTotalQPS()
-		if totalQPS != 5 {
-			t.Errorf("总QPS应该是5，实际是%d", totalQPS)
+		if totalQPS["1s"] != 0 {
+			t.Errorf("1s窗口的总QPS应该为0（已过期），实际是%d", totalQPS["1s"])
+		}
+		if totalQPS["5s"] != 10 {
+			t.Errorf("5s窗口的总QPS应该仍为10，实际是%d", totalQPS["5s"])
 		}
 	})
 
 	// 测试端点QPS
 	t.Run("端点QPS统计", func(t *testing.T) {
 		// 重置
-		dailyStats = NewDailyStats(time.Now())
+		dailyStats = NewDailyStats(time.Now(), qpsWindows)
 
 		// 添加不同端点的请求
 		dailyStats.AddEndpointRequest("/api/v1/users")
@@ -194,59 +192,60 @@ func TestQPSStatistics(t *testing.T) {
 		dailyStats.AddEndpointRequest("/api/v2/orders")
 		dailyStats.AddEndpointRequest("/api/v2/orders")
 
-		// 更新QPS
-		dailyStats.UpdateQPS()
-
 		// 验证端点QPS
 		endpointQPS := dailyStats.GetEndpointQPS()
-		if endpointQPS["/api/v1/users"] != 3 {
-			t.Errorf("/api/v1/users的QPS应该是3，实际是%d", endpointQPS["/api/v1/users"])
+		if endpointQPS["/api/v1/users"]["1s"] != 3 {
+			t.Errorf("/api/v1/users在1s窗口的QPS应该是3，实际是%d", endpointQPS["/api/v1/users"]["1s"])
 		}
-		if endpointQPS["/api/v2/orders"] != 2 {
-			t.Errorf("/api/v2/orders的QPS应该是2，实际是%d", endpointQPS["/api/v2/orders"])
+		if endpointQPS["/api/v2/orders"]["1s"] != 2 {
+			t.Errorf("/api/v2/orders在1s窗口的QPS应该是2，实际是%d", endpointQPS["/api/v2/orders"]["1s"])
 		}
 
-		// 下一秒只添加一个请求
-		dailyStats.AddEndpointRequest("/api/v1/users")
-		dailyStats.UpdateQPS()
-
-		// 验证QPS更新
+		// 等待1秒后，1s窗口应该清空，但5s窗口还有值
+		time.Sleep(1100 * time.Millisecond)
 		endpointQPS = dailyStats.GetEndpointQPS()
-		if endpointQPS["/api/v1/users"] != 1 {
-			t.Errorf("/api/v1/users的QPS应该是1，实际是%d", endpointQPS["/api/v1/users"])
+		// 5s窗口应该还有值
+		if endpointQPS["/api/v1/users"]["5s"] != 3 {
+			t.Errorf("/api/v1/users在5s窗口的QPS应该仍为3，实际是%d", endpointQPS["/api/v1/users"]["5s"])
 		}
-		if _, exists := endpointQPS["/api/v2/orders"]; exists {
-			t.Errorf("/api/v2/orders的QPS为0，不应该出现在结果中")
+		// 1s窗口应该为0（不返回）
+		if _, exists := endpointQPS["/api/v1/users"]["1s"]; exists {
+			t.Errorf("/api/v1/users在1s窗口的QPS应该为0（已过期），不应该出现在结果中")
 		}
 	})
 
-	// 测试QPS重置
-	t.Run("QPS重置", func(t *testing.T) {
-		dailyStats = NewDailyStats(time.Now())
+	// 测试滑动窗口清理
+	t.Run("滑动窗口清理", func(t *testing.T) {
+		dailyStats = NewDailyStats(time.Now(), qpsWindows)
 
 		// 添加请求
 		dailyStats.AddRequest()
 		dailyStats.AddEndpointRequest("/test")
 
-		// 更新QPS
-		dailyStats.UpdateQPS()
-
 		// 验证QPS有值
-		if dailyStats.GetTotalQPS() != 1 {
-			t.Errorf("总QPS应该是1")
+		totalQPS := dailyStats.GetTotalQPS()
+		if totalQPS["1s"] != 1 {
+			t.Errorf("总QPS在1s窗口应该是1，实际是%d", totalQPS["1s"])
 		}
 
-		// 不添加新请求，直接更新QPS
-		dailyStats.UpdateQPS()
-
-		// 验证QPS重置为0
-		if dailyStats.GetTotalQPS() != 0 {
-			t.Errorf("总QPS应该重置为0，实际是%d", dailyStats.GetTotalQPS())
+		// 等待超过1s窗口时间后，1s窗口应该过期，但5s窗口还有值
+		time.Sleep(1100 * time.Millisecond)
+		totalQPS = dailyStats.GetTotalQPS()
+		if totalQPS["1s"] != 0 {
+			t.Errorf("1s窗口的总QPS应该为0（已过期），实际是%d", totalQPS["1s"])
+		}
+		if totalQPS["5s"] != 1 {
+			t.Errorf("5s窗口的总QPS应该仍为1，实际是%d", totalQPS["5s"])
 		}
 
 		endpointQPS := dailyStats.GetEndpointQPS()
-		if len(endpointQPS) != 0 {
-			t.Errorf("端点QPS应该为空，实际有%d个端点", len(endpointQPS))
+		// 5s窗口应该还有值
+		if endpointQPS["/test"]["5s"] != 1 {
+			t.Errorf("/test在5s窗口的QPS应该仍为1，实际是%d", endpointQPS["/test"]["5s"])
+		}
+		// 1s窗口应该为0（不返回）
+		if _, exists := endpointQPS["/test"]["1s"]; exists {
+			t.Errorf("/test在1s窗口的QPS应该为0（已过期），不应该出现在结果中")
 		}
 	})
 }

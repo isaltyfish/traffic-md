@@ -22,10 +22,10 @@ type Tracker struct {
 }
 
 // NewTracker 创建新的跟踪器
-func NewTracker(logPath string, endpointRules []string) *Tracker {
+func NewTracker(logPath string, endpointRules []string, qpsWindows []time.Duration) *Tracker {
 	return &Tracker{
 		logPath:      logPath,
-		statsManager: stats.NewStatsManager(endpointRules),
+		statsManager: stats.NewStatsManager(endpointRules, qpsWindows),
 		logParser:    parser.NewLogParser(),
 		stopCh:       make(chan struct{}),
 		doneCh:       make(chan struct{}),
@@ -42,9 +42,6 @@ func (t *Tracker) Start() error {
 
 	// 启动淘汰检查
 	go t.evictLoop()
-
-	// 启动QPS更新循环（每秒更新一次）
-	go t.qpsUpdateLoop()
 
 	// 处理日志行
 	go func() {
@@ -147,21 +144,6 @@ func (t *Tracker) evictLoop() {
 			if before != after {
 				log.Printf("Evicted IPs: %d -> %d", before, after)
 			}
-		}
-	}
-}
-
-// qpsUpdateLoop QPS更新循环（每秒更新一次）
-func (t *Tracker) qpsUpdateLoop() {
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-t.stopCh:
-			return
-		case <-ticker.C:
-			t.statsManager.UpdateQPS()
 		}
 	}
 }

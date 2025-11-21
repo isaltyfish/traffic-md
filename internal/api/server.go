@@ -41,9 +41,11 @@ type EndpointStatResponse struct {
 }
 
 // QPSResponse QPS统计响应
+// TotalQPS: map[时间窗口]QPS值，如 {"5s": 100, "10s": 95, "1m": 80}
+// EndpointQPS: map[端点]map[时间窗口]QPS值
 type QPSResponse struct {
-	TotalQPS    int64            `json:"totalQPS"`    // 总QPS
-	EndpointQPS map[string]int64 `json:"endpointQPS"` // 端点QPS统计
+	TotalQPS    map[string]int64            `json:"totalQPS"`    // 总QPS（按时间窗口）
+	EndpointQPS map[string]map[string]int64 `json:"endpointQPS"` // 端点QPS统计（按时间窗口）
 }
 
 // GetIPStats 获取 IP 统计
