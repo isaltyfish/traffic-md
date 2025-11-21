@@ -43,6 +43,9 @@ func (t *Tracker) Start() error {
 	// 启动淘汰检查
 	go t.evictLoop()
 
+	// 启动QPS更新循环（每秒更新一次）
+	go t.qpsUpdateLoop()
+
 	// 处理日志行
 	go func() {
 		defer close(t.doneCh)
@@ -102,8 +105,13 @@ func (t *Tracker) processLogLine(line string) {
 	if entry.Path != "" {
 		if endpointPattern := t.statsManager.MatchEndpoint(entry.Path); endpointPattern != "" {
 			dailyStat.AddEndpointBytes(endpointPattern, entry.BytesSent)
+			// 更新端点QPS
+			dailyStat.AddEndpointRequest(endpointPattern)
 		}
 	}
+
+	// 更新总QPS（每个请求都计数）
+	dailyStat.AddRequest()
 }
 
 // dailyResetLoop 每日重置循环
@@ -139,6 +147,21 @@ func (t *Tracker) evictLoop() {
 			if before != after {
 				log.Printf("Evicted IPs: %d -> %d", before, after)
 			}
+		}
+	}
+}
+
+// qpsUpdateLoop QPS更新循环（每秒更新一次）
+func (t *Tracker) qpsUpdateLoop() {
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-t.stopCh:
+			return
+		case <-ticker.C:
+			t.statsManager.UpdateQPS()
 		}
 	}
 }

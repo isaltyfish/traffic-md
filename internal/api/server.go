@@ -40,6 +40,12 @@ type EndpointStatResponse struct {
 	TrafficMB float64 `json:"trafficMB"` // 流量（MB）
 }
 
+// QPSResponse QPS统计响应
+type QPSResponse struct {
+	TotalQPS    int64            `json:"totalQPS"`    // 总QPS
+	EndpointQPS map[string]int64 `json:"endpointQPS"` // 端点QPS统计
+}
+
 // GetIPStats 获取 IP 统计
 // GET /api/ip/{count}
 func (s *Server) GetIPStats(c echo.Context) error {
@@ -120,8 +126,26 @@ func (s *Server) GetEndpointStats(c echo.Context) error {
 	return c.JSON(http.StatusOK, endpointStatsList)
 }
 
+// GetQPS 获取QPS统计
+// GET /api/qps
+func (s *Server) GetQPS(c echo.Context) error {
+	statsManager := s.tracker.GetStatsManager()
+	dailyStats := statsManager.GetCurrentDay()
+
+	totalQPS := dailyStats.GetTotalQPS()
+	endpointQPS := dailyStats.GetEndpointQPS()
+
+	response := QPSResponse{
+		TotalQPS:    totalQPS,
+		EndpointQPS: endpointQPS,
+	}
+
+	return c.JSON(http.StatusOK, response)
+}
+
 // RegisterRoutes 注册路由
 func (s *Server) RegisterRoutes(e *echo.Echo) {
 	e.GET("/api/ip/:count", s.GetIPStats)
 	e.GET("/api/endpoint/:count", s.GetEndpointStats)
+	e.GET("/api/qps", s.GetQPS)
 }

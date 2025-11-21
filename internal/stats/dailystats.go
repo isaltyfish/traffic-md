@@ -14,14 +14,22 @@ type DailyStats struct {
 	PrivateBytes  int64            // 内网流量
 	OtherBytes    int64            // 其他流量
 	EndpointStats map[string]int64 // 端点流量统计
-	mu            sync.RWMutex
+	// QPS统计（当前秒的请求数）
+	TotalQPS    int64            // 总QPS（当前秒的请求数）
+	EndpointQPS map[string]int64 // 端点QPS统计（当前秒的请求数）
+	// QPS快照（上一秒的QPS值，用于查询）
+	TotalQPSValue    int64            // 总QPS值（上一秒计算的）
+	EndpointQPSValue map[string]int64 // 端点QPS值（上一秒计算的）
+	mu               sync.RWMutex
 }
 
 // NewDailyStats 创建新的日统计
 func NewDailyStats(date time.Time) *DailyStats {
 	return &DailyStats{
-		Date:          date,
-		EndpointStats: make(map[string]int64),
+		Date:             date,
+		EndpointStats:    make(map[string]int64),
+		EndpointQPS:      make(map[string]int64),
+		EndpointQPSValue: make(map[string]int64),
 	}
 }
 
@@ -73,6 +81,62 @@ func (d *DailyStats) GetEndpointStats() map[string]int64 {
 	return result
 }
 
+// AddRequest 增加请求计数（用于QPS统计）
+func (d *DailyStats) AddRequest() {
+	atomic.AddInt64(&d.TotalQPS, 1)
+}
+
+// AddEndpointRequest 增加端点请求计数（用于QPS统计）
+func (d *DailyStats) AddEndpointRequest(endpoint string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.EndpointQPS[endpoint]++
+}
+
+// GetTotalQPS 获取总QPS值（上一秒计算的QPS）
+func (d *DailyStats) GetTotalQPS() int64 {
+	return atomic.LoadInt64(&d.TotalQPSValue)
+}
+
+// GetEndpointQPS 获取端点QPS统计（上一秒计算的QPS）
+// 只返回QPS > 0的端点
+func (d *DailyStats) GetEndpointQPS() map[string]int64 {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	result := make(map[string]int64)
+	for k, v := range d.EndpointQPSValue {
+		if v > 0 {
+			result[k] = v
+		}
+	}
+	return result
+}
+
+// UpdateQPS 更新QPS值（每秒调用一次，将当前秒的计数保存为QPS值，然后重置计数器）
+func (d *DailyStats) UpdateQPS() {
+	// 获取当前秒的总请求数
+	currentTotal := atomic.SwapInt64(&d.TotalQPS, 0)
+	atomic.StoreInt64(&d.TotalQPSValue, currentTotal)
+
+	// 更新端点QPS值
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	// 保存当前秒的端点QPS值，并重置计数器
+	for k, v := range d.EndpointQPS {
+		d.EndpointQPSValue[k] = v
+		d.EndpointQPS[k] = 0 // 重置计数器
+	}
+
+	// 将当前秒没有请求的端点QPS设为0
+	// 注意：我们保留这些端点，但QPS为0，GetEndpointQPS会过滤掉QPS=0的端点
+	for k := range d.EndpointQPSValue {
+		if _, exists := d.EndpointQPS[k]; !exists {
+			d.EndpointQPSValue[k] = 0
+		}
+	}
+}
+
 // StatsManager 管理所有统计
 type StatsManager struct {
 	currentDay    *DailyStats
@@ -121,6 +185,13 @@ func (m *StatsManager) CheckAndResetDay() bool {
 		return true
 	}
 	return false
+}
+
+// UpdateQPS 更新QPS统计（每秒调用）
+func (m *StatsManager) UpdateQPS() {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	m.currentDay.UpdateQPS()
 }
 
 // MatchEndpoint 检查路径是否匹配端点规则，返回匹配的规则pattern
