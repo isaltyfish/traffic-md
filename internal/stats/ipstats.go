@@ -3,6 +3,7 @@ package stats
 import (
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -85,6 +86,7 @@ func (s *IPStats) CanEvict(now time.Time, force bool) bool {
 type IPStatsManager struct {
 	stats map[string]*IPStats
 	mu    sync.RWMutex
+	count atomic.Int64 // 使用 atomic 维护 IP 数量，避免 Count() 需要加锁
 }
 
 // NewIPStatsManager 创建新的IP统计管理器
@@ -107,6 +109,7 @@ func (m *IPStatsManager) GetOrCreate(ip string) *IPStats {
 		IP: ip,
 	}
 	m.stats[ip] = stat
+	m.count.Add(1) // 创建新 IP 时增加计数
 	return stat
 }
 
@@ -130,9 +133,7 @@ func (m *IPStatsManager) GetAll() map[string]*IPStats {
 
 // Count 获取IP数量
 func (m *IPStatsManager) Count() int {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return len(m.stats)
+	return int(m.count.Load()) // 使用 atomic 读取，无需加锁
 }
 
 // EvictIfNeeded 如果需要，执行淘汰策略
@@ -231,6 +232,7 @@ func (m *IPStatsManager) EvictIfNeeded() {
 	for i := 0; i < evictCount; i++ {
 		delete(m.stats, validCandidates[i].ip)
 	}
+	m.count.Add(-int64(evictCount)) // 删除 IP 时减少计数
 }
 
 // Reset 重置所有统计（用于跨天）
@@ -238,4 +240,5 @@ func (m *IPStatsManager) Reset() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.stats = make(map[string]*IPStats)
+	m.count.Store(0) // 重置计数
 }
