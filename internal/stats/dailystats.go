@@ -81,19 +81,33 @@ func (d *DailyStats) GetEndpointStats() map[string]int64 {
 
 // StatsManager 管理所有统计
 type StatsManager struct {
-	currentDay    *DailyStats
-	ipStats       *IPStatsManager
-	endpointRules []string // 需要统计的端点规则，如 "/abc/def/**"
-	mu            sync.RWMutex
+	currentDay      *DailyStats
+	ipStats         *IPStatsManager
+	endpointRules   []string            // 需要统计的端点规则，如 "/abc/def/**"
+	patternSegments map[string][]string // 预处理的 pattern segments，key: pattern, value: segments
+	mu              sync.RWMutex
 }
 
 // NewStatsManager 创建新的统计管理器
 func NewStatsManager(endpointRules []string) *StatsManager {
 	now := time.Now()
+
+	// 预处理所有 pattern segments，避免每次匹配时重复 split
+	patternSegments := make(map[string][]string, len(endpointRules))
+	for _, rule := range endpointRules {
+		// 规范化 pattern
+		normalizedPattern := rule
+		if !strings.HasPrefix(normalizedPattern, "/") {
+			normalizedPattern = "/" + normalizedPattern
+		}
+		patternSegments[rule] = splitPath(normalizedPattern)
+	}
+
 	return &StatsManager{
-		currentDay:    NewDailyStats(now, endpointRules),
-		ipStats:       NewIPStatsManager(),
-		endpointRules: endpointRules,
+		currentDay:      NewDailyStats(now, endpointRules),
+		ipStats:         NewIPStatsManager(),
+		endpointRules:   endpointRules,
+		patternSegments: patternSegments,
 	}
 }
 
@@ -133,8 +147,17 @@ func (m *StatsManager) CheckAndResetDay() bool {
 // 如果匹配多个规则，返回第一个匹配的规则
 // 如果没有匹配，返回空字符串
 func (m *StatsManager) MatchEndpoint(path string) string {
+	// 规范化路径：确保以 / 开头
+	normalizedPath := path
+	if !strings.HasPrefix(normalizedPath, "/") {
+		normalizedPath = "/" + normalizedPath
+	}
+	pathSegments := splitPath(normalizedPath)
+
+	// 使用预处理的 pattern segments
 	for _, rule := range m.endpointRules {
-		if matchPath(path, rule) {
+		patternSegments := m.patternSegments[rule]
+		if matchSegments(pathSegments, patternSegments) {
 			return rule
 		}
 	}
@@ -144,6 +167,7 @@ func (m *StatsManager) MatchEndpoint(path string) string {
 // matchPath 实现 glob 模式匹配，支持 * 和 **
 // * 匹配单个路径段（不包含 /）
 // ** 匹配零个或多个路径段（可以包含 /）
+// 注意：此函数保留用于测试，实际使用中应使用 MatchEndpoint（使用预处理的 segments）
 func matchPath(path, pattern string) bool {
 	// 规范化路径：确保以 / 开头
 	if !strings.HasPrefix(path, "/") {
